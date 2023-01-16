@@ -1,3 +1,7 @@
+## 1.1.2 (2022-12-08)
+
+- Added `original_attachable` to access the unencrypted `attachable`
+
 ## 1.1.1 (2022-12-08)
 
 - Fixed error when `StringIO` not loaded

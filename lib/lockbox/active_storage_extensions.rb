@@ -93,8 +93,13 @@ module Lockbox
         # and disallow unencrypted blobs
         # since they'll raise an error on decryption
         # but earlier versions of Lockbox won't have it
+        @_original_attachable = attachable
         attachable = Lockbox::Utils.encrypt_attachable(record, name, attachable) if Lockbox::Utils.encrypted?(record, name) && !attachable.is_a?(ActiveStorage::Blob)
         super(name, record, attachable)
+      end
+
+      def original_attachable
+        @_original_attachable
       end
     end
 
