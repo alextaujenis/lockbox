@@ -72,7 +72,7 @@ Then follow the instructions below for the data you want to encrypt.
 Create a migration with:
 
 ```ruby
-class AddEmailCiphertextToUsers < ActiveRecord::Migration[7.0]
+class AddEmailCiphertextToUsers < ActiveRecord::Migration[7.1]
   def change
     add_column :users, :email_ciphertext, :text
   end
@@ -117,6 +117,7 @@ class User < ApplicationRecord
   has_encrypted :active, type: :boolean
   has_encrypted :salary, type: :integer
   has_encrypted :latitude, type: :float
+  has_encrypted :longitude, type: :decimal
   has_encrypted :video, type: :binary
   has_encrypted :properties, type: :json
   has_encrypted :settings, type: :hash
@@ -248,7 +249,7 @@ User.decrypt_email_ciphertext(user.email_ciphertext)
 Create a migration with:
 
 ```ruby
-class AddBodyCiphertextToRichTexts < ActiveRecord::Migration[7.0]
+class AddBodyCiphertextToRichTexts < ActiveRecord::Migration[7.1]
   def change
     add_column :action_text_rich_texts, :body_ciphertext, :text
   end
@@ -379,7 +380,7 @@ Encryption is applied to all versions after processing.
 You can mount the uploader [as normal](https://github.com/carrierwaveuploader/carrierwave#activerecord). With Active Record, this involves creating a migration:
 
 ```ruby
-class AddLicenseToUsers < ActiveRecord::Migration[7.0]
+class AddLicenseToUsers < ActiveRecord::Migration[7.1]
   def change
     add_column :users, :license, :string
   end
@@ -566,51 +567,25 @@ Use `decrypt_str` get the value as UTF-8
 
 To make key rotation easy, you can pass previous versions of keys that can decrypt.
 
-### Active Record & Mongoid
-
-Update your model:
+Create `config/initializers/lockbox.rb` with:
 
 ```ruby
-class User < ApplicationRecord
-  has_encrypted :email, previous_versions: [{master_key: previous_key}]
-end
+Lockbox.default_options[:previous_versions] = [{master_key: previous_key}]
 ```
 
-To rotate existing records, use:
+To rotate existing Active Record & Mongoid records, use:
 
 ```ruby
 Lockbox.rotate(User, attributes: [:email])
 ```
 
-Once all records are rotated, you can remove `previous_versions` from the model.
-
-### Action Text
-
-Update your initializer:
-
-```ruby
-Lockbox.encrypts_action_text_body(previous_versions: [{master_key: previous_key}])
-```
-
-To rotate existing records, use:
+To rotate existing Action Text records, use:
 
 ```ruby
 Lockbox.rotate(ActionText::RichText, attributes: [:body])
 ```
 
-Once all records are rotated, you can remove `previous_versions` from the initializer.
-
-### Active Storage
-
-Update your model:
-
-```ruby
-class User < ApplicationRecord
-  encrypts_attached :license, previous_versions: [{master_key: previous_key}]
-end
-```
-
-To rotate existing files, use:
+To rotate existing Active Storage files, use:
 
 ```ruby
 User.with_attached_license.find_each do |user|
@@ -618,39 +593,31 @@ User.with_attached_license.find_each do |user|
 end
 ```
 
-Once all files are rotated, you can remove `previous_versions` from the model.
-
-### CarrierWave
-
-Update your model:
-
-```ruby
-class LicenseUploader < CarrierWave::Uploader::Base
-  encrypt previous_versions: [{master_key: previous_key}]
-end
-```
-
-To rotate existing files, use:
+To rotate existing CarrierWave files, use:
 
 ```ruby
 User.find_each do |user|
   user.license.rotate_encryption!
-end
-```
-
-For multiple files, use:
-
-```ruby
-User.find_each do |user|
+  # or for multiple files
   user.licenses.map(&:rotate_encryption!)
 end
 ```
 
-Once all files are rotated, you can remove `previous_versions` from the model.
+Once everything is rotated, you can remove `previous_versions` from the initializer.
+
+### Individual Fields & Files
+
+You can also pass previous versions to individual fields and files.
+
+```ruby
+class User < ApplicationRecord
+  has_encrypted :email, previous_versions: [{master_key: previous_key}]
+end
+```
 
 ### Local Files & Strings
 
-For local files and strings, use:
+To rotate local files and strings, use:
 
 ```ruby
 Lockbox.new(key: key, previous_versions: [{key: previous_key}])
@@ -928,12 +895,20 @@ lockbox.decrypt(ciphertext, associated_data: "somecontext")  # success
 lockbox.decrypt(ciphertext, associated_data: "othercontext") # fails
 ```
 
+You can also use it with database fields and files.
+
+```ruby
+class User < ApplicationRecord
+  has_encrypted :email, associated_data: -> { code }
+end
+```
+
 ## Binary Columns
 
 You can use `binary` columns for the ciphertext instead of `text` columns.
 
 ```ruby
-class AddEmailCiphertextToUsers < ActiveRecord::Migration[7.0]
+class AddEmailCiphertextToUsers < ActiveRecord::Migration[7.1]
   def change
     add_column :users, :email_ciphertext, :binary
   end
@@ -946,6 +921,12 @@ Disable Base64 encoding to save space.
 class User < ApplicationRecord
   has_encrypted :email, encode: false
 end
+```
+
+or set it globally:
+
+```ruby
+Lockbox.encode_attributes = false
 ```
 
 ## Compatibility
@@ -978,7 +959,7 @@ end
 Create a migration with:
 
 ```ruby
-class MigrateToLockbox < ActiveRecord::Migration[7.0]
+class MigrateToLockbox < ActiveRecord::Migration[7.1]
   def change
     add_column :users, :name_ciphertext, :text
     add_column :users, :email_ciphertext, :text
@@ -1011,7 +992,7 @@ end
 Then remove the previous gem from your Gemfile and drop its columns.
 
 ```ruby
-class RemovePreviousEncryptedColumns < ActiveRecord::Migration[7.0]
+class RemovePreviousEncryptedColumns < ActiveRecord::Migration[7.1]
   def change
     remove_column :users, :encrypted_name, :text
     remove_column :users, :encrypted_name_iv, :text

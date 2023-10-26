@@ -19,10 +19,12 @@ module Lockbox
       #   options[:type] = :integer
       # when Float
       #   options[:type] = :float
+      # when BigDecimal
+      #   options[:type] = :decimal
       # end
 
       custom_type = options[:type].respond_to?(:serialize) && options[:type].respond_to?(:deserialize)
-      valid_types = [nil, :string, :boolean, :date, :datetime, :time, :integer, :float, :binary, :json, :hash, :array, :inet]
+      valid_types = [nil, :string, :boolean, :date, :datetime, :time, :integer, :float, :decimal, :binary, :json, :hash, :array, :inet]
       raise ArgumentError, "Unknown type: #{options[:type]}" unless custom_type || valid_types.include?(options[:type])
 
       activerecord = defined?(ActiveRecord::Base) && self < ActiveRecord::Base
@@ -50,7 +52,7 @@ module Lockbox
 
         options[:attribute] = name.to_s
         options[:encrypted_attribute] = encrypted_attribute
-        options[:encode] = true unless options.key?(:encode)
+        options[:encode] = Lockbox.encode_attributes unless options.key?(:encode)
 
         encrypt_method_name = "generate_#{encrypted_attribute}"
         decrypt_method_name = "decrypt_#{encrypted_attribute}"
@@ -321,9 +323,15 @@ module Lockbox
 
               attribute name, attribute_type
 
-              serialize name, JSON if options[:type] == :json
-              serialize name, Hash if options[:type] == :hash
-              serialize name, Array if options[:type] == :array
+              if ActiveRecord::VERSION::STRING.to_f >= 7.1
+                serialize name, coder: JSON if options[:type] == :json
+                serialize name, type: Hash if options[:type] == :hash
+                serialize name, type: Array if options[:type] == :array
+              else
+                serialize name, JSON if options[:type] == :json
+                serialize name, Hash if options[:type] == :hash
+                serialize name, Array if options[:type] == :array
+              end
             elsif !attributes_to_define_after_schema_loads.key?(name.to_s)
               # when migrating it's best to specify the type directly
               # however, we can try to use the original type if its already defined
@@ -531,6 +539,19 @@ module Lockbox
                 message = ActiveRecord::Type::Float.new.serialize(message)
                 # double precision, big endian
                 message = [message].pack("G") unless message.nil?
+              when :decimal
+                message =
+                  if ActiveRecord::VERSION::MAJOR >= 6
+                    ActiveRecord::Type::Decimal.new.serialize(message)
+                  else
+                    # issue with serialize in Active Record < 6
+                    # https://github.com/rails/rails/commit/a741208f80dd33420a56486bd9ed2b0b9862234a
+                    ActiveRecord::Type::Decimal.new.cast(message)
+                  end
+                # Postgres stores 4 decimal digits in 2 bytes
+                # plus 3 to 8 bytes of overhead
+                # but use string for simplicity
+                message = message.to_s("F") unless message.nil?
               when :inet
                 unless message.nil?
                   ip = message.is_a?(IPAddr) ? message : (IPAddr.new(message) rescue nil)
@@ -543,8 +564,8 @@ module Lockbox
                 # do nothing
                 # encrypt will convert to binary
               else
-                # use original name for serialized attributes
-                type = (try(:attribute_types) || {})[original_name.to_s]
+                # use original name for serialized attributes if no type specified
+                type = (try(:attribute_types) || {})[(options[:type] ? name : original_name).to_s]
                 message = type.serialize(message) if type
               end
             end
@@ -579,6 +600,8 @@ module Lockbox
                 message = ActiveRecord::Type::Integer.new(limit: 8).deserialize(message.unpack1("q>"))
               when :float
                 message = ActiveRecord::Type::Float.new.deserialize(message.unpack1("G"))
+              when :decimal
+                message = ActiveRecord::Type::Decimal.new.deserialize(message)
               when :string
                 message.force_encoding(Encoding::UTF_8)
               when :binary
@@ -590,8 +613,8 @@ module Lockbox
                 message = IPAddr.new_ntoh(addr.first(len))
                 message.prefix = prefix
               else
-                # use original name for serialized attributes
-                type = (try(:attribute_types) || {})[original_name.to_s]
+                # use original name for serialized attributes if no type specified
+                type = (try(:attribute_types) || {})[(options[:type] ? name : original_name).to_s]
                 message = type.deserialize(message) if type
                 message.force_encoding(Encoding::UTF_8) if !type || type.is_a?(ActiveModel::Type::String)
               end

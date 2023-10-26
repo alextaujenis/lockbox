@@ -1,5 +1,18 @@
-## 1.1.2 (2022-12-08)
+## 1.3.0 (2023-07-02)
 
+- Added support for CarrierWave 3
+
+## 1.2.0 (2023-03-20)
+
+- Made it easier to rotate master key
+- Added `associated_data` option for database fields and files
+- Added `decimal` type
+- Added `encode_attributes` option
+- Fixed deprecation warnings with Rails 7.1
+
+## 1.1.2 (2023-02-01)
+
+- Fixed error when migrating to `array`, `hash`, and `json` types
 - Added `original_attachable` to access the unencrypted `attachable`
 
 ## 1.1.1 (2022-12-08)
